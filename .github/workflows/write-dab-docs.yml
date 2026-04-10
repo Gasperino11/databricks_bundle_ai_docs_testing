@@ -73,7 +73,13 @@ jobs:
               title: `📝 Write DAB Documentation: ${dabDirs.join(', ')}`,
               body: issueBody,
               labels: ['copilot', 'dab-docs-writer'],
-              assignees: ['copilot']
+              assignees: ['copilot-swe-agent[bot]'],
+              agent_assignment: {
+                target_repo: `${context.repo.owner}/${context.repo.repo}`,
+                base_branch: context.payload.pull_request?.head?.ref || 'main',
+                custom_instructions: '',
+                custom_agent: 'writer-agent'
+              }
             });
 
             console.log(`Created issue #${issue.data.number}`);
