@@ -1,0 +1,118 @@
+name: Review DAB Documentation
+
+on:
+  workflow_dispatch:
+    inputs:
+      dab_path:
+        description: "Path to a specific DAB to review (e.g., data_eng/s3_ingestion_pipeline). Leave empty to review all in ai_docs/"
+        required: false
+        default: ""
+      ai_docs_dir:
+        description: "Directory containing DABs to review (used in batch mode)"
+        required: false
+        default: "ai_docs"
+      output_dir:
+        description: "Directory to move reviewed DABs to"
+        required: false
+        default: "data_eng"
+  issues:
+    types: [opened, labeled]
+
+jobs:
+  review-docs:
+    # Run when manually dispatched OR when an issue is labeled 'review-dab-docs'
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'review-dab-docs'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Create Copilot issue for documentation review
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const dabPath = context.payload.inputs?.dab_path || '';
+            const aiDocsDir = context.payload.inputs?.ai_docs_dir || 'ai_docs';
+            const outputDir = context.payload.inputs?.output_dir || 'data_eng';
+            const fs = require('fs');
+
+            let issueTitle, issueBody;
+
+            if (dabPath) {
+              // Single DAB mode
+              if (!fs.existsSync(`${dabPath}/databricks.yml`)) {
+                console.log(`No databricks.yml found at ${dabPath}`);
+                return;
+              }
+
+              const dabName = dabPath.split('/').pop();
+              issueTitle = `🔍 Review DAB Documentation: ${dabName}`;
+              issueBody = `## Task: Review DAB Documentation (Single DAB)
+
+              @copilot Please review the documentation for this Databricks Asset Bundle:
+
+              - \`${dabPath}/\`
+
+              ### Instructions
+
+              Follow the instructions in \`agents/reviewer-agent.md\` using **Mode 2: Single DAB Review**.
+
+              1. Read the \`README.md\` in \`${dabPath}/\`
+              2. Read all code and config files in the DAB (\`databricks.yml\`, \`src/*.py\`, \`resources/*.yml\`)
+              3. Cross-reference the documentation against the code
+              4. Write a \`REVIEW.md\` in \`${dabPath}/\` with any issues found (include file paths and line numbers)
+              5. Do NOT move this DAB — it is already in its final location
+
+              The review format and checks are documented in \`agents/reviewer-agent.md\`.
+              `.replace(/^              /gm, '');
+            } else {
+              // Batch mode
+              const dabDirs = fs.readdirSync(aiDocsDir, { withFileTypes: true })
+                .filter(d => d.isDirectory())
+                .filter(d => fs.existsSync(`${aiDocsDir}/${d.name}/databricks.yml`))
+                .map(d => d.name);
+
+              if (dabDirs.length === 0) {
+                console.log('No DABs found in ' + aiDocsDir);
+                return;
+              }
+
+              const dabList = dabDirs.map(d => `- \`${aiDocsDir}/${d}/\``).join('\n');
+
+              issueTitle = `🔍 Review DAB Documentation: ${dabDirs.join(', ')}`;
+              issueBody = `## Task: Review DAB Documentation (Batch)
+
+              @copilot Please review the documentation for the following Databricks Asset Bundles:
+
+              ${dabList}
+
+              ### Instructions
+
+              Follow the instructions in \`agents/reviewer-agent.md\` using **Mode 1: Batch Review**.
+
+              For each DAB listed above:
+              1. Read the \`README.md\`
+              2. Read all code and config files (\`databricks.yml\`, \`src/*.py\`, \`resources/*.yml\`)
+              3. Cross-reference the documentation against the code
+              4. Write a \`REVIEW.md\` in the DAB root with any issues found (include file paths and line numbers)
+              5. Move the DAB subfolder from \`${aiDocsDir}/\` to \`${outputDir}/\`
+
+              The review format and checks are documented in \`agents/reviewer-agent.md\`.
+              `.replace(/^              /gm, '');
+            }
+
+            const issue = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: issueTitle,
+              body: issueBody,
+              labels: ['copilot']
+            });
+
+            console.log(`Created issue #${issue.data.number}`);
