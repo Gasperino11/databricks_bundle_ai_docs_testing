@@ -112,8 +112,7 @@ jobs:
               repo: context.repo.repo,
               title: issueTitle,
               body: issueBody,
-              labels: ['copilot'],
-              assignees: ['copilot']
+              labels: ['copilot']
             });
 
             console.log(`Created issue #${issue.data.number}`);
