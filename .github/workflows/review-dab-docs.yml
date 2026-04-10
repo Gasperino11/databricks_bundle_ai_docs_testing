@@ -15,15 +15,9 @@ on:
         description: "Directory to move reviewed DABs to"
         required: false
         default: "data_eng"
-  issues:
-    types: [opened, labeled]
 
 jobs:
   review-docs:
-    # Run when manually dispatched OR when an issue is labeled 'review-dab-docs'
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'review-dab-docs'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -45,7 +39,7 @@ jobs:
             let issueTitle, issueBody;
 
             if (dabPath) {
-              // Single DAB mode
+              // Single DAB mode — target a DAB already in data_eng/ (or any path)
               if (!fs.existsSync(`${dabPath}/databricks.yml`)) {
                 console.log(`No databricks.yml found at ${dabPath}`);
                 return;
@@ -61,7 +55,7 @@ jobs:
 
               ### Instructions
 
-              Follow the instructions in \`agents/reviewer-agent.md\` using **Mode 2: Single DAB Review**.
+              Follow the instructions in \`.github/agents/reviewer-agent.md\` using **Mode 2: Single DAB Review**.
 
               1. Read the \`README.md\` in \`${dabPath}/\`
               2. Read all code and config files in the DAB (\`databricks.yml\`, \`src/*.py\`, \`resources/*.yml\`)
@@ -69,10 +63,10 @@ jobs:
               4. Write a \`REVIEW.md\` in \`${dabPath}/\` with any issues found (include file paths and line numbers)
               5. Do NOT move this DAB — it is already in its final location
 
-              The review format and checks are documented in \`agents/reviewer-agent.md\`.
+              The review format and checks are documented in \`.github/agents/reviewer-agent.md\`.
               `.replace(/^              /gm, '');
             } else {
-              // Batch mode
+              // Batch mode — review all DABs in ai_docs/
               const dabDirs = fs.readdirSync(aiDocsDir, { withFileTypes: true })
                 .filter(d => d.isDirectory())
                 .filter(d => fs.existsSync(`${aiDocsDir}/${d.name}/databricks.yml`))
@@ -94,7 +88,7 @@ jobs:
 
               ### Instructions
 
-              Follow the instructions in \`agents/reviewer-agent.md\` using **Mode 1: Batch Review**.
+              Follow the instructions in \`.github/agents/reviewer-agent.md\` using **Mode 1: Batch Review**.
 
               For each DAB listed above:
               1. Read the \`README.md\`
@@ -103,7 +97,7 @@ jobs:
               4. Write a \`REVIEW.md\` in the DAB root with any issues found (include file paths and line numbers)
               5. Move the DAB subfolder from \`${aiDocsDir}/\` to \`${outputDir}/\`
 
-              The review format and checks are documented in \`agents/reviewer-agent.md\`.
+              The review format and checks are documented in \`.github/agents/reviewer-agent.md\`.
               `.replace(/^              /gm, '');
             }
 
@@ -112,7 +106,8 @@ jobs:
               repo: context.repo.repo,
               title: issueTitle,
               body: issueBody,
-              labels: ['copilot']
+              labels: ['copilot', 'dab-docs-reviewer'],
+              assignees: ['copilot']
             });
 
             console.log(`Created issue #${issue.data.number}`);
