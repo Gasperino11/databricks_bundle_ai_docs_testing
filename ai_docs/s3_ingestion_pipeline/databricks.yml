@@ -1,0 +1,108 @@
+bundle:
+  name: s3_ingestion_pipeline
+
+workspace:
+  host: https://dbc-example1234.cloud.databricks.com
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://dbc-example1234.cloud.databricks.com
+      root_path: /Users/${workspace.current_user.userName}/.bundle/${bundle.name}/dev
+
+  prod:
+    mode: production
+    workspace:
+      host: https://dbc-example5678.cloud.databricks.com
+      root_path: /Shared/.bundle/${bundle.name}/prod
+    run_as:
+      service_principal_name: sp-data-engineering
+
+resources:
+  jobs:
+    s3_ingestion_job:
+      name: s3_ingestion_job
+      description: "Daily ingestion pipeline that loads raw event data from AWS S3, transforms through bronze/silver/gold layers, and publishes to Unity Catalog."
+      schedule:
+        quartz_cron_expression: "0 0 8 * * ?"
+        timezone_id: "UTC"
+        pause_status: UNPAUSED
+      tags:
+        team: data-engineering
+        domain: events
+      job_clusters:
+        - job_cluster_key: ingestion_cluster
+          new_cluster:
+            spark_version: "14.3.x-scala2.12"
+            node_type_id: "i3.xlarge"
+            num_workers: 2
+            aws_attributes:
+              availability: SPOT_WITH_FALLBACK
+              first_on_demand: 1
+      tasks:
+        - task_key: bronze_ingestion
+          job_cluster_key: ingestion_cluster
+          spark_python_task:
+            python_file: src/bronze_ingestion.py
+            parameters:
+              - "--source"
+              - "s3://acme-data-lake/raw/events/"
+              - "--target-catalog"
+              - "main"
+              - "--target-schema"
+              - "bronze"
+          libraries:
+            - pypi:
+                package: "boto3==1.28.0"
+
+        - task_key: silver_transform
+          depends_on:
+            - task_key: bronze_ingestion
+          job_cluster_key: ingestion_cluster
+          spark_python_task:
+            python_file: src/silver_transform.py
+            parameters:
+              - "--source-catalog"
+              - "main"
+              - "--source-schema"
+              - "bronze"
+              - "--target-catalog"
+              - "main"
+              - "--target-schema"
+              - "silver"
+
+        - task_key: gold_aggregate
+          depends_on:
+            - task_key: silver_transform
+          job_cluster_key: ingestion_cluster
+          spark_python_task:
+            python_file: src/gold_aggregate.py
+            parameters:
+              - "--source-catalog"
+              - "main"
+              - "--source-schema"
+              - "silver"
+              - "--target-catalog"
+              - "main"
+              - "--target-schema"
+              - "gold"
+
+  pipelines:
+    s3_ingestion_dlt_pipeline:
+      name: s3_ingestion_dlt_pipeline
+      target: "main.dlt_events"
+      continuous: false
+      development: true
+      catalog: "main"
+      libraries:
+        - notebook:
+            path: src/dlt_events_pipeline.py
+      clusters:
+        - label: "default"
+          num_workers: 2
+          node_type_id: "i3.xlarge"
+
+include:
+  - resources/*.yml
