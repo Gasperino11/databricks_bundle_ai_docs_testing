@@ -1,26 +1,30 @@
 # databricks_bundle_ai_docs_testing
 
-Automated documentation writing and review for Databricks Asset Bundles (DABs).
+Automated documentation writing and review for Databricks Asset Bundles (DABs) using GitHub Copilot agents.
 
 ## Overview
 
-This repository provides two AI-powered agents that automate the process of writing and reviewing documentation for Databricks Asset/Automation Bundles:
+This repository uses GitHub Copilot coding agents — triggered via GitHub Actions workflows and guided by detailed prompt files — to automate the process of writing and reviewing documentation for Databricks Asset/Automation Bundles:
 
-1. **Writer Agent** — Scans the `ai_docs/` directory, reads each DAB's configuration, source code, and resources, then generates a comprehensive `README.md` following a standardized template.
-2. **Reviewer Agent** — Reviews each DAB's documentation against its code, produces a `REVIEW.md` highlighting any inconsistencies, and moves reviewed DABs to `data_eng/`.
+1. **Writer Agent** (`agents/writer-agent.md`) — A Copilot agent prompt that instructs the AI to scan DABs in `ai_docs/`, read their configuration, source code, and resources, then generate comprehensive `README.md` documentation following a standardized template.
+2. **Reviewer Agent** (`agents/reviewer-agent.md`) — A Copilot agent prompt that instructs the AI to cross-reference documentation against code, produce a `REVIEW.md` highlighting inconsistencies (with file and line references), and move reviewed DABs to `data_eng/`.
 
 ## Repository Structure
 
 ```
+├── .github/
+│   └── workflows/
+│       ├── write-dab-docs.yml    # Workflow to trigger the writer agent
+│       └── review-dab-docs.yml   # Workflow to trigger the reviewer agent
 ├── agents/
-│   ├── writer_agent.py      # Documentation writer agent
-│   └── reviewer_agent.py    # Documentation reviewer agent
+│   ├── writer-agent.md           # Prompt/instructions for the writer agent
+│   └── reviewer-agent.md         # Prompt/instructions for the reviewer agent
 ├── templates/
-│   └── README_TEMPLATE.md   # README template with instructions
-├── ai_docs/                  # DABs awaiting documentation
-│   └── <dab_name>/          # Individual DAB folders
-├── data_eng/                 # Reviewed & documented DABs
-└── README.md                 # This file
+│   └── README_TEMPLATE.md        # README template with section instructions
+├── ai_docs/                      # DABs awaiting documentation
+│   └── <dab_name>/               # Individual DAB folders
+├── data_eng/                     # Reviewed & documented DABs
+└── README.md                     # This file
 ```
 
 ## Workflow
@@ -33,44 +37,60 @@ Copy or create your Databricks Asset Bundle in a subfolder under `ai_docs/`. Eac
 - `resources/` — YAML resource definitions
 - `README.md` — Copy from `templates/README_TEMPLATE.md`
 
-### 2. Run the Writer Agent
+### 2. Trigger the Writer Agent
 
-```bash
-python agents/writer_agent.py
-```
+Use one of the following methods:
+
+**Via GitHub Actions (recommended):**
+1. Go to **Actions** → **Write DAB Documentation**
+2. Click **Run workflow**
+3. Optionally set the `ai_docs_dir` input (defaults to `ai_docs`)
+4. The workflow creates a Copilot-assigned issue with instructions from `agents/writer-agent.md`
+5. Copilot reads the DAB files and generates the README documentation in a PR
+
+**Via GitHub Issues:**
+1. Create a new issue with the label `write-dab-docs`
+2. In the issue body, mention `@copilot` and reference the DABs to document
+3. Copilot will follow the instructions in `agents/writer-agent.md`
 
 The writer agent will:
-- Discover all DABs in `ai_docs/`
-- Read `databricks.yml`, source files, and resource configs
-- Generate documentation in each DAB's `README.md`
-- Automatically invoke the Reviewer Agent
+- Discover all DABs in `ai_docs/` that contain a `databricks.yml`
+- Read `databricks.yml`, source files in `src/`, and resource configs in `resources/`
+- Generate complete documentation in each DAB's `README.md` following the template
+- Trigger the reviewer agent when done (unless `skip_review` is set)
 
-**Options:**
-```bash
-python agents/writer_agent.py --ai-docs-dir ai_docs --template templates/README_TEMPLATE.md
-python agents/writer_agent.py --skip-review  # Skip the reviewer step
-```
+### 3. Trigger the Reviewer Agent
 
-### 3. Run the Reviewer Agent
+The reviewer runs automatically after the writer, but can also be triggered independently:
 
-The reviewer agent runs automatically after the writer, but can also be run independently:
+**Via GitHub Actions:**
+1. Go to **Actions** → **Review DAB Documentation**
+2. Click **Run workflow**
+3. To review all DABs in `ai_docs/`, leave `dab_path` empty (batch mode)
+4. To review a specific DAB already in `data_eng/`, set `dab_path` (e.g., `data_eng/s3_ingestion_pipeline`)
 
-```bash
-# Review all DABs in ai_docs/ and move to data_eng/
-python agents/reviewer_agent.py
-
-# Review a single DAB already in data_eng/
-python agents/reviewer_agent.py --dab-path data_eng/s3_ingestion_pipeline
-```
+**Via GitHub Issues:**
+1. Create a new issue with the label `review-dab-docs`
+2. In the issue body, mention `@copilot` and reference the DABs to review
 
 The reviewer agent will:
-- Read the README.md and cross-reference it against the code and configs
+- Read the `README.md` and cross-reference it against the code and configs
 - Produce a `REVIEW.md` with any issues found (including file and line references)
-- Move the DAB from `ai_docs/` to `data_eng/`
+- In batch mode: move the DAB from `ai_docs/` to `data_eng/`
+- In single DAB mode: review in-place without moving
+
+## Agent Prompts
+
+The agent behavior is defined by detailed markdown prompt files in the `agents/` directory:
+
+| File | Description |
+|------|-------------|
+| `agents/writer-agent.md` | Full instructions for the documentation writer — how to read each file type, what to extract, and how to fill in each README section |
+| `agents/reviewer-agent.md` | Full instructions for the documentation reviewer — what checks to perform, how to report issues, and the REVIEW.md output format |
 
 ## README Template
 
-The template at `templates/README_TEMPLATE.md` includes the following sections with embedded instructions:
+The template at `templates/README_TEMPLATE.md` includes the following sections with embedded `<!-- INSTRUCTIONS: ... -->` comment blocks:
 
 | Section | Description |
 |---------|-------------|
