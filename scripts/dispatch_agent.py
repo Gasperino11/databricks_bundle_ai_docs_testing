@@ -261,10 +261,10 @@ def _env() -> tuple[str, str, str]:
     """Return (token, owner, repo) from environment."""
     token = os.environ.get("GITHUB_TOKEN")
     if not token:
-        sys.exit("GITHUB_TOKEN environment variable is required")
+        sys.exit("GITHUB_TOKEN environment variable is not set")
     full_repo = os.environ.get("GITHUB_REPOSITORY", "")
     if "/" not in full_repo:
-        sys.exit("GITHUB_REPOSITORY must be in 'owner/repo' format")
+        sys.exit(f"GITHUB_REPOSITORY must be in 'owner/repo' format, got: '{full_repo}'")
     owner, repo = full_repo.split("/", 1)
     return token, owner, repo
 
