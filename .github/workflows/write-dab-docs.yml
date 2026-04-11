@@ -73,7 +73,6 @@ jobs:
               title: `📝 Write DAB Documentation: ${dabDirs.join(', ')}`,
               body: issueBody,
               labels: ['copilot', 'dab-docs-writer'],
-              assignees: ['copilot-swe-agent[bot]'],
               agent_assignment: {
                 target_repo: `${context.repo.owner}/${context.repo.repo}`,
                 base_branch: context.payload.pull_request?.head?.ref || 'main',
