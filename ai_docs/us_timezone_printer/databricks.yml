@@ -1,0 +1,37 @@
+bundle:
+  name: us_timezone_printer
+
+workspace:
+  host: https://dbc-example1234.cloud.databricks.com
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://dbc-example1234.cloud.databricks.com
+      root_path: /Users/${workspace.current_user.userName}/.bundle/${bundle.name}/dev
+
+  prod:
+    mode: production
+    workspace:
+      host: https://dbc-example5678.cloud.databricks.com
+      root_path: /Shared/.bundle/${bundle.name}/prod
+
+resources:
+  jobs:
+    us_timezone_printer_job:
+      name: us_timezone_printer_job
+      description: "Hourly job that prints the current time for each US timezone."
+      schedule:
+        quartz_cron_expression: "0 0 * * * ?"
+        timezone_id: "UTC"
+        pause_status: UNPAUSED
+      tasks:
+        - task_key: print_us_timezones
+          notebook_task:
+            notebook_path: src/print_us_timezones.py
+          new_cluster:
+            spark_version: "14.3.x-scala2.12"
+            node_type_id: "i3.xlarge"
+            num_workers: 0
