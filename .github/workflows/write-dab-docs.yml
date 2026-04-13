@@ -25,60 +25,17 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
 
-      - name: Create Copilot issue for documentation writing
-        uses: actions/github-script@v7
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          script: |
-            const aiDocsDir = context.payload.inputs?.ai_docs_dir || 'ai_docs';
+          python-version: "3.12"
 
-            const fs = require('fs');
+      - name: Install dependencies
+        run: pip install requests
 
-            // Discover DABs in the ai_docs directory
-            const dabDirs = fs.readdirSync(aiDocsDir, { withFileTypes: true })
-              .filter(d => d.isDirectory())
-              .filter(d => fs.existsSync(`${aiDocsDir}/${d.name}/databricks.yml`))
-              .map(d => d.name);
-
-            if (dabDirs.length === 0) {
-              console.log('No DABs found in ' + aiDocsDir);
-              return;
-            }
-
-            console.log(`Found ${dabDirs.length} DAB(s) to document: ${dabDirs.join(', ')}`);
-
-            const dabList = dabDirs.map(d => `- \`${aiDocsDir}/${d}/\``).join('\n');
-
-            const issueBody = `## Task: Write DAB Documentation
-
-            @copilot Please write documentation for the following Databricks Asset Bundles:
-
-            ${dabList}
-
-            ### Instructions
-
-            Follow the instructions in \`.github/agents/writer-agent.md\` to generate documentation.
-
-            For each DAB listed above:
-            1. Read \`databricks.yml\`, all files in \`src/\`, and all files in \`resources/\`
-            2. Read the \`README.md\` template (which follows the structure from \`templates/README_TEMPLATE.md\`)
-            3. Replace the README.md with fully completed documentation following the template instructions
-            4. Remove all \`<!-- INSTRUCTIONS: ... -->\` comment blocks from the output
-
-            The template is at \`templates/README_TEMPLATE.md\` for reference.
-            `.replace(/^            /gm, '');
-
-            const issue = await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `📝 Write DAB Documentation: ${dabDirs.join(', ')}`,
-              body: issueBody,
-              labels: ['copilot', 'dab-docs-writer'],
-              agent_assignment: {
-                target_repo: `${context.repo.owner}/${context.repo.repo}`,
-                base_branch: context.payload.pull_request?.head?.ref || 'main',
-                custom_instructions: '',
-                custom_agent: 'writer-agent'
-              }
-            });
-
-            console.log(`Created issue #${issue.data.number}`);
+      - name: Dispatch Copilot writer agent
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/dispatch_agent.py writer \
+            --ai-docs-dir "${{ github.event.inputs.ai_docs_dir || 'ai_docs' }}"

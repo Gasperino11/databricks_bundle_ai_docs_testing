@@ -20,54 +20,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Create Copilot reviewer issue
-        uses: actions/github-script@v7
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          script: |
-            const fs = require('fs');
-            const aiDocsDir = 'ai_docs';
-            const outputDir = 'data_eng';
+          python-version: "3.12"
 
-            // Discover DABs that need review
-            const dabDirs = fs.readdirSync(aiDocsDir, { withFileTypes: true })
-              .filter(d => d.isDirectory())
-              .filter(d => fs.existsSync(`${aiDocsDir}/${d.name}/databricks.yml`))
-              .map(d => d.name);
+      - name: Install dependencies
+        run: pip install requests
 
-            if (dabDirs.length === 0) {
-              console.log('No DABs found in ' + aiDocsDir + ' to review — the writer may not have added any.');
-              return;
-            }
-
-            const dabList = dabDirs.map(d => `- \`${aiDocsDir}/${d}/\``).join('\n');
-
-            const issueBody = `## Task: Review DAB Documentation (Batch — Auto-triggered)
-
-            @copilot The Writer agent's PR #${context.payload.pull_request.number} has been merged. Please review the documentation for the following Databricks Asset Bundles:
-
-            ${dabList}
-
-            ### Instructions
-
-            Follow the instructions in \`.github/agents/reviewer-agent.md\` using **Mode 1: Batch Review**.
-
-            For each DAB listed above:
-            1. Read the \`README.md\`
-            2. Read all code and config files (\`databricks.yml\`, \`src/*.py\`, \`resources/*.yml\`)
-            3. Cross-reference the documentation against the code
-            4. Write a \`REVIEW.md\` in the DAB root with any issues found (include file paths and line numbers)
-            5. Move the DAB subfolder from \`${aiDocsDir}/\` to \`${outputDir}/\`
-
-            The review format and checks are documented in \`.github/agents/reviewer-agent.md\`.
-            `.replace(/^            /gm, '');
-
-            const issue = await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `🔍 Review DAB Documentation: ${dabDirs.join(', ')} (auto-chained)`,
-              body: issueBody,
-              labels: ['copilot', 'dab-docs-reviewer'],
-              assignees: ['copilot']
-            });
-
-            console.log(`Created reviewer issue #${issue.data.number} after writer PR #${context.payload.pull_request.number} was merged`);
+      - name: Dispatch Copilot reviewer agent
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python scripts/dispatch_agent.py reviewer \
+            --ai-docs-dir ai_docs \
+            --output-dir data_eng \
+            --pr-number "${{ github.event.pull_request.number }}"
