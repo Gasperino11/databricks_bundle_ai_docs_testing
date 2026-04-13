@@ -94,7 +94,6 @@ def create_copilot_issue(
         "title": title,
         "body": body,
         "labels": labels,
-        "assignees": ["copilot"],
     }
     resp = requests.post(url, headers=_github_headers(token), json=payload, timeout=30)
     resp.raise_for_status()
