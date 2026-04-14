@@ -150,22 +150,23 @@ async def _run_copilot_session(system_message: str, prompt: str) -> None:
     client = CopilotClient()
     await client.start()
 
-    session = await client.create_session(
-        on_permission_request=PermissionHandler.approve_all,
-        model=_MODEL,
-        system_message={"mode": "replace", "content": system_message},
-    )
-
-    def handle_session_event(event):
-        etype = event.type.value if hasattr(event.type, "value") else str(event.type)
-        if etype == "tool.execution_start":
-            print(f"  ⚙️  {event.data.tool_name}")
-        elif etype == "assistant.message":
-            print(f"\n🤖 {event.data.content}\n")
-
-    session.on(handle_session_event)
-
+    session = None
     try:
+        session = await client.create_session(
+            on_permission_request=PermissionHandler.approve_all,
+            model=_MODEL,
+            system_message={"mode": "replace", "content": system_message},
+        )
+
+        def handle_session_event(event):
+            etype = event.type.value if hasattr(event.type, "value") else str(event.type)
+            if etype == "tool.execution_start":
+                print(f"  ⚙️  {event.data.tool_name}")
+            elif etype == "assistant.message":
+                print(f"\n🤖 {event.data.content}\n")
+
+        session.on(handle_session_event)
+
         print("📊 Sending task to Copilot…")
         await session.send_and_wait(
             prompt,
@@ -180,7 +181,8 @@ async def _run_copilot_session(system_message: str, prompt: str) -> None:
         )
         sys.exit(1)
     finally:
-        await session.disconnect()
+        if session is not None:
+            await session.disconnect()
         await client.stop()
 
 
