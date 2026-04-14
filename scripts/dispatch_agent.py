@@ -21,7 +21,7 @@ import sys
 import textwrap
 from pathlib import Path
 
-from copilot import CopilotClient, SessionConfig
+from copilot import CopilotClient, PermissionHandler, SessionConfig
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +154,8 @@ async def _run_copilot_session(system_message: str, prompt: str) -> None:
             system_message={"content": system_message},
             working_directory=str(repo_root),
             auto_approve=True,
-        )
+        ),
+        on_permission_request=PermissionHandler.approve_all,
     )
 
     def handle_session_event(event):
