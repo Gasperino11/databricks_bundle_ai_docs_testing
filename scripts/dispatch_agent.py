@@ -30,7 +30,7 @@ from copilot.session import PermissionHandler
 # ---------------------------------------------------------------------------
 
 _SESSION_TIMEOUT = 600  # seconds to wait for a Copilot session to complete
-_MODEL = "gpt-4o"
+_MODEL = "gpt-4o-mini"
 
 # ---------------------------------------------------------------------------
 # DAB discovery
