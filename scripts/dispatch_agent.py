@@ -140,6 +140,9 @@ def _single_review_prompt(dab_path: str) -> str:
 
 async def _run_copilot_session(system_message: str, prompt: str) -> None:
     """Create a Copilot SDK session, send a prompt, and wait for completion."""
+    if not os.environ.get("GITHUB_TOKEN"):
+        sys.exit("GITHUB_TOKEN environment variable is not set")
+
     client = CopilotClient()
     await client.start()
 
@@ -154,14 +157,14 @@ async def _run_copilot_session(system_message: str, prompt: str) -> None:
         )
     )
 
-    def _log_event(event):
+    def handle_session_event(event):
         etype = event.type.value if hasattr(event.type, "value") else str(event.type)
         if etype == "tool.execution_start":
             print(f"  ⚙️  {event.data.tool_name}")
         elif etype == "assistant.message":
             print(f"\n🤖 {event.data.content}\n")
 
-    session.on(_log_event)
+    session.on(handle_session_event)
 
     try:
         print("📊 Sending task to Copilot…")
@@ -170,6 +173,13 @@ async def _run_copilot_session(system_message: str, prompt: str) -> None:
             timeout=_SESSION_TIMEOUT,
         )
         print("✅ Copilot session completed.")
+    except TimeoutError:
+        print(
+            f"⏱️ Copilot session timed out after {_SESSION_TIMEOUT}s. "
+            "Consider increasing _SESSION_TIMEOUT or breaking the task into "
+            "smaller pieces."
+        )
+        sys.exit(1)
     finally:
         await session.destroy()
         await client.stop()
