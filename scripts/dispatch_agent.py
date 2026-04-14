@@ -21,7 +21,8 @@ import sys
 import textwrap
 from pathlib import Path
 
-from copilot import CopilotClient, PermissionHandler, SessionConfig
+from copilot import CopilotClient
+from copilot.session import PermissionHandler
 
 
 # ---------------------------------------------------------------------------
@@ -143,31 +144,29 @@ async def _run_copilot_session(system_message: str, prompt: str) -> None:
     if not os.environ.get("GITHUB_TOKEN"):
         sys.exit("GITHUB_TOKEN environment variable is not set")
 
+    repo_root = Path(__file__).resolve().parent.parent
+    os.chdir(repo_root)
+
     client = CopilotClient()
     await client.start()
 
-    repo_root = Path(__file__).resolve().parent.parent
-
-    session = await client.create_session(
-        SessionConfig(
-            model=_MODEL,
-            system_message={"content": system_message},
-            working_directory=str(repo_root),
-            auto_approve=True,
-        ),
-        on_permission_request=PermissionHandler.approve_all,
-    )
-
-    def handle_session_event(event):
-        etype = event.type.value if hasattr(event.type, "value") else str(event.type)
-        if etype == "tool.execution_start":
-            print(f"  ⚙️  {event.data.tool_name}")
-        elif etype == "assistant.message":
-            print(f"\n🤖 {event.data.content}\n")
-
-    session.on(handle_session_event)
-
+    session = None
     try:
+        session = await client.create_session(
+            on_permission_request=PermissionHandler.approve_all,
+            model=_MODEL,
+            system_message={"mode": "replace", "content": system_message},
+        )
+
+        def handle_session_event(event):
+            etype = event.type.value if hasattr(event.type, "value") else str(event.type)
+            if etype == "tool.execution_start":
+                print(f"  ⚙️  {event.data.tool_name}")
+            elif etype == "assistant.message":
+                print(f"\n🤖 {event.data.content}\n")
+
+        session.on(handle_session_event)
+
         print("📊 Sending task to Copilot…")
         await session.send_and_wait(
             prompt,
@@ -182,7 +181,8 @@ async def _run_copilot_session(system_message: str, prompt: str) -> None:
         )
         sys.exit(1)
     finally:
-        await session.destroy()
+        if session is not None:
+            await session.disconnect()
         await client.stop()
 
 
