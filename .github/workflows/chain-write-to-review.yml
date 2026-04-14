@@ -30,7 +30,7 @@ jobs:
 
       - name: Dispatch Copilot reviewer agent
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
         run: |
           python scripts/dispatch_agent.py reviewer \
             --ai-docs-dir ai_docs \
