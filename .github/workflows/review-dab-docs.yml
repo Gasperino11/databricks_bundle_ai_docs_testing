@@ -37,7 +37,7 @@ jobs:
 
       - name: Dispatch Copilot reviewer agent
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
         run: |
           DAB_PATH="${{ github.event.inputs.dab_path }}"
           if [ -n "$DAB_PATH" ]; then
