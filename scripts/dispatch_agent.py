@@ -21,7 +21,7 @@ import sys
 import textwrap
 from pathlib import Path
 
-from copilot import CopilotClient, MessageOptions, PermissionHandler, SessionConfig
+from copilot import CopilotClient, PermissionHandler, SessionConfig
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +169,7 @@ async def _run_copilot_session(system_message: str, prompt: str) -> None:
     try:
         print("📊 Sending task to Copilot…")
         await session.send_and_wait(
-            MessageOptions(prompt=prompt),
+            prompt,
             timeout=_SESSION_TIMEOUT,
         )
         print("✅ Copilot session completed.")
