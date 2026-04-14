@@ -144,6 +144,9 @@ async def _run_copilot_session(system_message: str, prompt: str) -> None:
     if not os.environ.get("GITHUB_TOKEN"):
         sys.exit("GITHUB_TOKEN environment variable is not set")
 
+    repo_root = Path(__file__).resolve().parent.parent
+    os.chdir(repo_root)
+
     client = CopilotClient()
     await client.start()
 
