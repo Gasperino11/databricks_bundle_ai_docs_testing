@@ -21,7 +21,8 @@ import sys
 import textwrap
 from pathlib import Path
 
-from copilot import CopilotClient, PermissionHandler, SessionConfig
+from copilot import CopilotClient
+from copilot.session import PermissionHandler
 
 
 # ---------------------------------------------------------------------------
@@ -146,16 +147,10 @@ async def _run_copilot_session(system_message: str, prompt: str) -> None:
     client = CopilotClient()
     await client.start()
 
-    repo_root = Path(__file__).resolve().parent.parent
-
     session = await client.create_session(
-        SessionConfig(
-            model=_MODEL,
-            system_message={"content": system_message},
-            working_directory=str(repo_root),
-            auto_approve=True,
-        ),
         on_permission_request=PermissionHandler.approve_all,
+        model=_MODEL,
+        system_message={"mode": "replace", "content": system_message},
     )
 
     def handle_session_event(event):
@@ -182,7 +177,7 @@ async def _run_copilot_session(system_message: str, prompt: str) -> None:
         )
         sys.exit(1)
     finally:
-        await session.destroy()
+        await session.disconnect()
         await client.stop()
 
 

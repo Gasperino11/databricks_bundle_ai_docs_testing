@@ -33,7 +33,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install github-copilot-sdk
+        run: pip install 'github-copilot-sdk==0.2.2'
 
       - name: Dispatch Copilot reviewer agent
         env:
