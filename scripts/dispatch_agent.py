@@ -30,7 +30,14 @@ from copilot.session import PermissionHandler
 # ---------------------------------------------------------------------------
 
 _SESSION_TIMEOUT = 600  # seconds to wait for a Copilot session to complete
-_MODEL = "gpt-4o-mini"
+
+# Preferred model patterns, checked in order.  The first available model whose
+# ``id`` contains one of these substrings (case-insensitive) wins.
+_PREFERRED_MODEL_PATTERNS: list[str] = [
+    "claude",       # Prefer Claude models first
+    "gpt",          # Then GPT models
+]
+_FALLBACK_MODEL = "gpt-4o-mini"  # Last-resort if list_models() fails
 
 # ---------------------------------------------------------------------------
 # DAB discovery
@@ -139,6 +146,33 @@ def _single_review_prompt(dab_path: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+async def _select_model(client: CopilotClient) -> str:
+    """Pick the best available model, preferring Claude, with a fallback."""
+    try:
+        models = await client.list_models()
+        if not models:
+            print(f"⚠️  No models returned by list_models(); falling back to {_FALLBACK_MODEL}")
+            return _FALLBACK_MODEL
+
+        available_ids = [m.id for m in models]
+        print(f"📋 Available models: {', '.join(available_ids)}")
+
+        # Walk through preference list and pick the first match
+        for pattern in _PREFERRED_MODEL_PATTERNS:
+            for model in models:
+                if pattern.lower() in model.id.lower():
+                    print(f"✅ Selected model: {model.id} (matched preference '{pattern}')")
+                    return model.id
+
+        # No preference matched – use the first available model
+        chosen = models[0].id
+        print(f"✅ Selected model: {chosen} (first available)")
+        return chosen
+    except Exception as exc:
+        print(f"⚠️  list_models() failed ({exc}); falling back to {_FALLBACK_MODEL}")
+        return _FALLBACK_MODEL
+
+
 async def _run_copilot_session(system_message: str, prompt: str) -> None:
     """Create a Copilot SDK session, send a prompt, and wait for completion."""
     if not os.environ.get("GITHUB_TOKEN"):
@@ -152,9 +186,11 @@ async def _run_copilot_session(system_message: str, prompt: str) -> None:
 
     session = None
     try:
+        model = await _select_model(client)
+
         session = await client.create_session(
             on_permission_request=PermissionHandler.approve_all,
-            model=_MODEL,
+            model=model,
             system_message={"mode": "replace", "content": system_message},
         )
 
