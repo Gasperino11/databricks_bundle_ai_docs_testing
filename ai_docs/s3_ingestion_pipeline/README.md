@@ -2,14 +2,14 @@
 
 ## Description & Purpose
 
-This bundle manages a daily ingestion pipeline owned by the **data-engineering** team (events domain). It pulls raw event data from AWS S3, transforms it through a medallion architecture (bronze → silver → gold), and publishes aggregated daily metrics to Unity Catalog for downstream BI consumption. A companion Delta Live Tables (DLT) pipeline provides an alternative streaming-style medallion implementation of the same logic.
+This bundle manages a daily ingestion pipeline that pulls raw event data from AWS S3, transforms it through a medallion architecture (bronze → silver → gold), and publishes aggregated metrics to Unity Catalog for downstream BI consumption. It is owned by the **data-engineering** team and operates within the **events** domain.
 
-Key technologies used:
-- **Databricks Workflows** — orchestrates the three-task batch job
-- **Delta Live Tables (DLT)** — streaming-capable medallion pipeline with built-in data quality expectations
-- **Unity Catalog** — all intermediate and final tables are registered in the `main` catalog
-- **Delta Lake** — all outputs are stored in Delta format
-- **AWS S3** — source of raw Parquet event data
+The pipeline consists of two complementary components:
+
+1. **Databricks Workflow Job (`s3_ingestion_job`)** — A three-task sequential job that ingests raw Parquet files from S3 into the bronze Unity Catalog layer, cleans and deduplicates records in the silver layer, and produces daily aggregated metrics in the gold layer.
+2. **Delta Live Tables Pipeline (`s3_ingestion_dlt_pipeline`)** — A DLT pipeline that mirrors the medallion architecture using declarative table definitions with built-in data quality expectations.
+
+Key technologies: **Delta Lake**, **Unity Catalog**, **Delta Live Tables (DLT)**, **Databricks Workflows**, **AWS S3**.
 
 ## Folder Structure
 
@@ -28,53 +28,55 @@ s3_ingestion_pipeline/
 
 | Path | Description |
 |------|-------------|
-| `databricks.yml` | Root bundle configuration: deployment targets, job definition, DLT pipeline definition, and included resource files |
+| `databricks.yml` | Root bundle configuration: deployment targets, job/pipeline definitions, and included resource files |
 | `README.md` | This documentation file |
-| `src/bronze_ingestion.py` | Reads raw Parquet files from S3 and appends them to the bronze Unity Catalog table with ingestion metadata columns |
-| `src/silver_transform.py` | Cleans, deduplicates, and standardises bronze event data, then writes to the silver Unity Catalog table |
-| `src/gold_aggregate.py` | Aggregates silver event data into daily metrics and writes to the gold Unity Catalog table |
-| `src/dlt_events_pipeline.py` | Delta Live Tables notebook defining `bronze_events_raw`, `silver_events_clean`, and `gold_daily_metrics` DLT tables |
-| `resources/alerts.yml` | Defines a Unity Catalog quality monitor on the gold table, email failure notifications, and job-level permissions |
+| `src/bronze_ingestion.py` | Reads raw Parquet event data from AWS S3 and writes to the bronze Unity Catalog layer with ingestion metadata |
+| `src/silver_transform.py` | Cleans, deduplicates, and standardises bronze events, then writes to the silver Unity Catalog layer |
+| `src/gold_aggregate.py` | Aggregates silver events into daily metrics and writes to the gold Unity Catalog layer for BI consumption |
+| `src/dlt_events_pipeline.py` | Delta Live Tables pipeline: defines `bronze_events_raw`, `silver_events_clean`, and `gold_daily_metrics` DLT tables |
+| `resources/alerts.yml` | Defines the Unity Catalog quality monitor for `main.gold.daily_event_metrics` and job permissions |
 
 ## Job & Pipeline Diagram
 
 ```mermaid
 graph LR
     S3[("AWS S3\ns3://acme-data-lake/raw/events/")]
-
-    T0["bronze_ingestion\nsrc/bronze_ingestion.py"]
-    T1["silver_transform\nsrc/silver_transform.py"]
-    T2["gold_aggregate\nsrc/gold_aggregate.py"]
-
+    T0["bronze_ingestion\n(bronze_ingestion.py)"]
+    T1["silver_transform\n(silver_transform.py)"]
+    T2["gold_aggregate\n(gold_aggregate.py)"]
     BRONZE[("Unity Catalog\nmain.bronze.raw_events")]
     SILVER[("Unity Catalog\nmain.silver.clean_events")]
     GOLD[("Unity Catalog\nmain.gold.daily_event_metrics")]
 
-    S3 -->|"Ingest (Parquet)"| T0
-    T0 -->|"append"| BRONZE
-    BRONZE --> T1
-    T1 -->|"overwrite"| SILVER
-    SILVER --> T2
-    T2 -->|"overwrite"| GOLD
+    S3 -->|"Ingest Parquet"| T0
+    T0 -->|"Append (Delta)"| BRONZE
+    BRONZE -->|"Read"| T1
+    T1 -->|"Overwrite (Delta)"| SILVER
+    SILVER -->|"Read"| T2
+    T2 -->|"Overwrite (Delta)"| GOLD
 
-    subgraph "Databricks Workflow Job: s3_ingestion_job"
+    subgraph "s3_ingestion_job (Databricks Workflow)"
         T0
         T1
         T2
     end
+```
 
-    DLT_B["bronze_events_raw\n@dlt.table"]
-    DLT_S["silver_events_clean\n@dlt.table"]
-    DLT_G["gold_daily_metrics\n@dlt.table"]
+```mermaid
+graph LR
+    S3_DLT[("AWS S3\ns3://acme-data-lake/raw/events/")]
+    DLT0["bronze_events_raw\n(DLT Table)"]
+    DLT1["silver_events_clean\n(DLT Table)"]
+    DLT2["gold_daily_metrics\n(DLT Table)"]
 
-    S3 -->|"Ingest (Parquet)"| DLT_B
-    DLT_B --> DLT_S
-    DLT_S --> DLT_G
+    S3_DLT -->|"Read Parquet"| DLT0
+    DLT0 -->|"Expect & Clean"| DLT1
+    DLT1 -->|"Aggregate"| DLT2
 
-    subgraph "DLT Pipeline: s3_ingestion_dlt_pipeline (main.dlt_events)"
-        DLT_B
-        DLT_S
-        DLT_G
+    subgraph "s3_ingestion_dlt_pipeline (Delta Live Tables)"
+        DLT0
+        DLT1
+        DLT2
     end
 ```
 
@@ -82,30 +84,29 @@ graph LR
 
 ### Prerequisites
 
-- [Databricks CLI](https://docs.databricks.com/en/dev-tools/cli/index.html) v0.200+ installed and configured
-- Access to the target Databricks workspace (dev or prod)
-- Authentication configured via `databricks configure` or environment variables (`DATABRICKS_HOST`, `DATABRICKS_TOKEN`)
-- The service principal `sp-data-engineering` must exist in the prod workspace (used as `run_as` identity)
-- AWS credentials / instance profile must be in place on the cluster so it can read `s3://acme-data-lake/raw/events/`
+- [Databricks CLI](https://docs.databricks.com/en/dev-tools/cli/index.html) v0.200+ installed
+- Access to the target Databricks workspace(s) and valid authentication configured (`databricks auth login` or environment variables `DATABRICKS_HOST` / `DATABRICKS_TOKEN`)
+- Appropriate permissions to create jobs, pipelines, and Unity Catalog schemas in the target workspace
+- For production deployments: the service principal `sp-data-engineering` must exist in the prod workspace
 
-### Validate the bundle
+### Deployment Steps
 
+**1. Validate the bundle**
 ```bash
 databricks bundle validate
 ```
 
-### Deploy
-
+**2. Deploy to the development environment (default)**
 ```bash
-# Deploy to the dev environment (default)
 databricks bundle deploy --target dev
+```
 
-# Deploy to the production environment
+**3. Deploy to production**
+```bash
 databricks bundle deploy --target prod
 ```
 
-### Run the workflow job
-
+**4. Run the workflow job**
 ```bash
 # Run in dev
 databricks bundle run --target dev s3_ingestion_job
@@ -114,66 +115,65 @@ databricks bundle run --target dev s3_ingestion_job
 databricks bundle run --target prod s3_ingestion_job
 ```
 
-### Run the DLT pipeline
-
+**5. Run the DLT pipeline**
 ```bash
-# Run DLT pipeline in dev
+# Run in dev
 databricks bundle run --target dev s3_ingestion_dlt_pipeline
 
-# Run DLT pipeline in prod
+# Run in prod
 databricks bundle run --target prod s3_ingestion_dlt_pipeline
 ```
 
-### Deployment targets
+### Deployment Targets
 
-| Target | Workspace Host | Mode | Notes |
-|--------|---------------|------|-------|
-| `dev` | `https://dbc-example1234.cloud.databricks.com` | Development (default) | Deploys to each user's personal `.bundle` path |
-| `prod` | `https://dbc-example5678.cloud.databricks.com` | Production | Deploys to `/Shared/.bundle/...`; runs as `sp-data-engineering` service principal |
+| Target | Workspace Host | Mode | Run As | Description |
+|--------|---------------|------|--------|-------------|
+| `dev` | `https://dbc-example1234.cloud.databricks.com` | `development` | Current user | Default development environment; resources deployed under the user's home path |
+| `prod` | `https://dbc-example5678.cloud.databricks.com` | `production` | `sp-data-engineering` | Production environment; resources deployed to `/Shared/.bundle/` |
 
 ## Schedule
 
-| Job/Pipeline Name | Schedule (Cron) | Timezone | Status | Description |
-|-------------------|----------------|----------|--------|-------------|
-| `s3_ingestion_job` | `0 0 8 * * ?` | `UTC` | Active (UNPAUSED) | Runs daily at 08:00 AM UTC |
-| `s3_ingestion_dlt_pipeline` | — | — | Manual trigger | No schedule configured; triggered on demand or via the workflow job |
+| Job/Pipeline Name | Schedule (Cron) | Timezone | Pause Status | Description |
+|-------------------|----------------|----------|--------------|-------------|
+| `s3_ingestion_job` | `0 0 8 * * ?` | `UTC` | UNPAUSED | Runs daily at 08:00 UTC |
+| `s3_ingestion_dlt_pipeline` | — | — | — | Manual trigger only (no schedule configured) |
+| `event_freshness_monitor` (quality monitor) | `0 0 10 * * ?` | `UTC` | — | Checks data freshness on `main.gold.daily_event_metrics` daily at 10:00 UTC |
 
 ## Data Sources
 
 | Source Name | Type | Location/Path | Format | Description |
 |-------------|------|--------------|--------|-------------|
-| Raw events | AWS S3 | `s3://acme-data-lake/raw/events/` | Parquet | Raw event data produced by upstream production systems; schema merging is enabled |
-| `raw_events` (bronze) | Unity Catalog | `main.bronze.raw_events` | Delta | Bronze table consumed by the silver transform task and the DLT pipeline |
-| `clean_events` (silver) | Unity Catalog | `main.silver.clean_events` | Delta | Silver table consumed by the gold aggregation task |
+| `raw_events` | AWS S3 | `s3://acme-data-lake/raw/events/` | Parquet | Raw event data ingested from production systems; used by both the workflow job and the DLT pipeline |
+| `main.bronze.raw_events` | Unity Catalog (Delta) | `main.bronze.raw_events` | Delta | Bronze-layer table read by the `silver_transform` task |
+| `main.silver.clean_events` | Unity Catalog (Delta) | `main.silver.clean_events` | Delta | Silver-layer table read by the `gold_aggregate` task |
 
 ## Data Outputs
 
 | Output Name | Type | Location/Path | Format | Description |
 |-------------|------|--------------|--------|-------------|
-| `raw_events` | Unity Catalog | `main.bronze.raw_events` | Delta | Bronze table: raw events appended with `_ingested_at` and `_source_file` metadata columns |
-| `clean_events` | Unity Catalog | `main.silver.clean_events` | Delta | Silver table: cleaned, deduplicated events with standardised types and `_processed_at` column |
-| `daily_event_metrics` | Unity Catalog | `main.gold.daily_event_metrics` | Delta | Gold table: daily metrics by `event_date` and `event_type` (event count, unique users, first/last event timestamps) |
-| `bronze_events_raw` | DLT Table | `main.dlt_events.bronze_events_raw` | Delta Live Tables | DLT bronze table: raw events from S3 with ingestion metadata |
-| `silver_events_clean` | DLT Table | `main.dlt_events.silver_events_clean` | Delta Live Tables | DLT silver table: cleaned events with data quality expectations enforced |
-| `gold_daily_metrics` | DLT Table | `main.dlt_events.gold_daily_metrics` | Delta Live Tables | DLT gold table: daily aggregated event metrics |
+| `raw_events` | Unity Catalog (Delta) | `main.bronze.raw_events` | Delta | Bronze table containing raw events with `_ingested_at` and `_source_file` metadata columns; written in append mode |
+| `clean_events` | Unity Catalog (Delta) | `main.silver.clean_events` | Delta | Silver table with null-filtered, deduplicated, and standardised events; written with overwrite |
+| `daily_event_metrics` | Unity Catalog (Delta) | `main.gold.daily_event_metrics` | Delta | Gold table with daily aggregated event counts and unique user metrics per event type; written with overwrite |
+| `bronze_events_raw` | DLT Table | `main.dlt_events.bronze_events_raw` | Delta Live Tables | DLT bronze table — raw events from S3 with ingestion metadata |
+| `silver_events_clean` | DLT Table | `main.dlt_events.silver_events_clean` | Delta Live Tables | DLT silver table — cleaned events with data quality expectations enforced |
+| `gold_daily_metrics` | DLT Table | `main.dlt_events.gold_daily_metrics` | Delta Live Tables | DLT gold table — daily aggregated event metrics |
 
 ## Managed Assets
 
 | Asset Type | Asset Name | Description |
 |------------|-----------|-------------|
-| Workflow Job | `s3_ingestion_job` | Orchestrates the three-stage batch medallion pipeline (bronze → silver → gold) on a daily schedule |
-| Job Cluster | `ingestion_cluster` | Spark 14.3.x cluster (`i3.xlarge`, 2 workers, SPOT_WITH_FALLBACK) used by all workflow tasks |
-| DLT Pipeline | `s3_ingestion_dlt_pipeline` | Delta Live Tables pipeline implementing the medallion architecture with built-in data quality expectations; targets `main.dlt_events` |
-| Quality Monitor | `event_freshness_monitor` | Unity Catalog quality monitor on `main.gold.daily_event_metrics`; checks run daily at 10:00 AM UTC with email failure alerts to `data-engineering@acme.com` |
-| Job Permission | `s3_ingestion_job_permissions` | `data-engineering` group → `CAN_MANAGE`; `data-analysts` group → `CAN_VIEW` |
+| Workflow Job | `s3_ingestion_job` | Orchestrates the three-stage bronze → silver → gold ingestion pipeline; runs daily at 08:00 UTC on an `i3.xlarge` spot cluster |
+| Job Cluster | `ingestion_cluster` | Auto-provisioned Spark 14.3.x cluster (2× `i3.xlarge` SPOT_WITH_FALLBACK workers) used by all tasks in `s3_ingestion_job` |
+| DLT Pipeline | `s3_ingestion_dlt_pipeline` | Delta Live Tables pipeline implementing the medallion architecture declaratively; targets `main.dlt_events` schema |
+| Quality Monitor | `event_freshness_monitor` | Unity Catalog quality monitor on `main.gold.daily_event_metrics`; runs daily at 10:00 UTC and emails `data-engineering@acme.com` on failure |
+| Job Permission | `s3_ingestion_job_permissions` | `data-engineering` group → `CAN_MANAGE`; `data-analysts` group → `CAN_VIEW` on `s3_ingestion_job` |
 
 ## Authors
 
 | Name | Role | Contact |
 |------|------|---------|
-| data-engineering team | Owner / Maintainer | data-engineering@acme.com |
-
-> **Note:** Individual author details were not found in the bundle configuration or source code. Please update this table with the names and contacts of the primary maintainers.
+| — | Owner / Maintainer | *Please fill in manually* |
+| data-engineering team | Operations & On-call | data-engineering@acme.com |
 
 ## References
 
@@ -181,5 +181,5 @@ databricks bundle run --target prod s3_ingestion_dlt_pipeline
 - [Databricks CLI](https://docs.databricks.com/en/dev-tools/cli/index.html)
 - [Delta Live Tables Documentation](https://docs.databricks.com/en/delta-live-tables/index.html)
 - [Unity Catalog Documentation](https://docs.databricks.com/en/data-governance/unity-catalog/index.html)
-- [Delta Lake Documentation](https://docs.delta.io/latest/index.html)
 - [Databricks Workflows Documentation](https://docs.databricks.com/en/workflows/index.html)
+- [Delta Lake Documentation](https://docs.delta.io/latest/index.html)
