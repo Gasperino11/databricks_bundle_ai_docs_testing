@@ -9,7 +9,7 @@ Provide a clear, concise summary of what this DAB does. Include:
 - The business problem it solves
 - A high-level overview of the data pipeline or workflow
 - The team or domain that owns this bundle
-- Any key technologies or Databricks features used (e.g., Delta Live Tables, Unity Catalog, Workflows)
+- Any key technologies or Databricks features used (e.g., Spark Declarative Pipelines, Unity Catalog, Workflows)
 
 Example:
 > This bundle manages a daily ingestion pipeline that pulls raw event data from AWS S3,
@@ -70,7 +70,7 @@ graph LR
 Include:
 - External data sources and sinks
 - Each task in the workflow job(s)
-- DLT pipeline stages if applicable
+- DLT pipeline stages if applicable (note: DLT is now called Spark Declarative Pipelines)
 - Dependencies between tasks (use arrows to show data flow)
 - Subgraphs for logical groupings (e.g., workflow jobs, pipelines)
 -->
@@ -163,7 +163,7 @@ Present as a table:
 | Asset Type | Asset Name | Description |
 |------------|-----------|-------------|
 | Workflow Job | `<job_name>` | Orchestrates the ingestion pipeline |
-| DLT Pipeline | `<pipeline_name>` | Manages the medallion architecture transformations |
+| Spark Declarative Pipeline | `<pipeline_name>` | Manages the medallion architecture transformations |
 | Cluster | `<cluster_name>` | Compute cluster for pipeline execution |
 | Dashboard | `<dashboard_name>` | Monitoring dashboard for pipeline metrics |
 

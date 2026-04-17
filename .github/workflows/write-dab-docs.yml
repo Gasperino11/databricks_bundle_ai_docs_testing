@@ -2,15 +2,15 @@ name: Write DAB Documentation
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened]
     paths:
-      - "ai_docs/**"
+      - "data_eng/**"
   workflow_dispatch:
     inputs:
-      ai_docs_dir:
-        description: "Directory containing DABs to document"
+      dab_path:
+        description: "Path to a DAB folder containing a databricks.yml (e.g., data_eng/s3_ingestion_pipeline)"
         required: false
-        default: "ai_docs"
+        default: ""
 
 jobs:
   write-docs:
@@ -37,5 +37,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
         run: |
-          python scripts/dispatch_agent.py writer \
-            --ai-docs-dir "${{ github.event.inputs.ai_docs_dir || 'ai_docs' }}"
+          DAB_PATH="${{ github.event.inputs.dab_path }}"
+          if [ -n "$DAB_PATH" ]; then
+            python scripts/dispatch_agent.py writer \
+              --dab-path "$DAB_PATH"
+          else
+            python scripts/dispatch_agent.py writer \
+              --scan-dir data_eng
+          fi

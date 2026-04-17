@@ -1,24 +1,21 @@
 name: Review DAB Documentation
 
 on:
+  workflow_run:
+    workflows: ["Write DAB Documentation"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       dab_path:
-        description: "Path to a specific DAB to review (e.g., data_eng/s3_ingestion_pipeline). Leave empty to review all in ai_docs/"
+        description: "Path to a specific DAB to review (e.g., data_eng/s3_ingestion_pipeline)"
         required: false
         default: ""
-      ai_docs_dir:
-        description: "Directory containing DABs to review (used in batch mode)"
-        required: false
-        default: "ai_docs"
-      output_dir:
-        description: "Directory to move reviewed DABs to"
-        required: false
-        default: "data_eng"
 
 jobs:
   review-docs:
     runs-on: ubuntu-latest
+    # Only run if the writer workflow succeeded (for automatic trigger) or always on manual dispatch
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     permissions:
       contents: write
       issues: write
@@ -26,6 +23,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -41,10 +40,9 @@ jobs:
         run: |
           DAB_PATH="${{ github.event.inputs.dab_path }}"
           if [ -n "$DAB_PATH" ]; then
-            python scripts/dispatch_agent.py review-single \
+            python scripts/dispatch_agent.py reviewer \
               --dab-path "$DAB_PATH"
           else
-            python scripts/dispatch_agent.py review-batch \
-              --ai-docs-dir "${{ github.event.inputs.ai_docs_dir || 'ai_docs' }}" \
-              --output-dir "${{ github.event.inputs.output_dir || 'data_eng' }}"
+            python scripts/dispatch_agent.py reviewer \
+              --scan-dir data_eng
           fi
