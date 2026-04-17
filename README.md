@@ -17,8 +17,8 @@ This repository uses GitHub Copilot coding agents — triggered via GitHub Actio
 │   │   ├── writer-agent.md           # Prompt/instructions for the writer agent
 │   │   └── reviewer-agent.md         # Prompt/instructions for the reviewer agent
 │   └── workflows/
-│       ├── write-dab-docs.yml        # Workflow to trigger the writer agent
-│       └── review-dab-docs.yml       # Workflow to trigger the reviewer agent
+│       ├── write-dab-docs.yml        # Workflow to run writer then reviewer agent
+│       └── review-dab-docs.yml       # Manual workflow to run reviewer agent standalone
 ├── templates/
 │   └── README_TEMPLATE.md            # README template with section instructions
 ├── data_eng/                         # DAB folders live here
@@ -34,23 +34,24 @@ This repository uses GitHub Copilot coding agents — triggered via GitHub Actio
 
 When a new pull request is opened that adds or modifies files under `data_eng/`:
 
-1. The **Writer Agent** workflow triggers automatically and generates documentation (`README.md`) for any new DABs in the PR.
-2. Once the writer workflow completes, the **Reviewer Agent** workflow triggers automatically and reviews the generated documentation, producing a `REVIEW.md` report.
+1. The **Write and Review DAB Documentation** workflow triggers automatically.
+2. **Job 1 (Writer)**: The writer agent generates documentation (`README.md`) for any new DABs in the PR.
+3. **Job 2 (Reviewer)**: After the writer completes, the reviewer agent reviews the generated documentation and produces a `REVIEW.md` report.
 
 ### Manual Trigger
 
 Both workflows can also be triggered manually via **Actions → Run workflow**:
 
-#### Writer Agent (Manual)
+#### Writer + Reviewer (Manual)
 
-1. Go to **Actions** → **Write DAB Documentation**
+1. Go to **Actions** → **Write and Review DAB Documentation**
 2. Click **Run workflow**
 3. Set `dab_path` to the path of a DAB folder containing a `databricks.yml` (e.g., `data_eng/s3_ingestion_pipeline`)
-4. The writer agent will read the DAB's code and configuration and generate documentation
+4. The writer agent generates documentation, then the reviewer agent reviews it
 
-If `dab_path` is left empty, the writer scans all DABs in `data_eng/`.
+If `dab_path` is left empty, both agents scan all DABs in `data_eng/`.
 
-#### Reviewer Agent (Manual)
+#### Reviewer Only (Manual)
 
 1. Go to **Actions** → **Review DAB Documentation**
 2. Click **Run workflow**

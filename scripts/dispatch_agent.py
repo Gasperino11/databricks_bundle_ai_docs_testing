@@ -45,12 +45,12 @@ _FALLBACK_MODEL = "gpt-4o-mini"  # Last-resort if list_models() fails
 
 
 def discover_dabs(base_dir: str) -> list[str]:
-    """Return relative paths of subdirectories that contain a ``databricks.yml``."""
+    """Return relative paths (from repo root) of subdirectories that contain a ``databricks.yml``."""
     base = Path(base_dir)
     if not base.exists():
         return []
     return sorted(
-        str(d.relative_to(Path.cwd())) if d.is_absolute() else str(d)
+        str(base / d.name)
         for d in base.iterdir()
         if d.is_dir() and (d / "databricks.yml").exists()
     )

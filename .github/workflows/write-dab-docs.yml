@@ -1,4 +1,4 @@
-name: Write DAB Documentation
+name: Write and Review DAB Documentation
 
 on:
   pull_request:
@@ -43,5 +43,39 @@ jobs:
               --dab-path "$DAB_PATH"
           else
             python scripts/dispatch_agent.py writer \
+              --scan-dir data_eng
+          fi
+
+  review-docs:
+    needs: write-docs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install 'github-copilot-sdk==0.2.2'
+
+      - name: Dispatch Copilot reviewer agent
+        env:
+          GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
+        run: |
+          DAB_PATH="${{ github.event.inputs.dab_path }}"
+          if [ -n "$DAB_PATH" ]; then
+            python scripts/dispatch_agent.py reviewer \
+              --dab-path "$DAB_PATH"
+          else
+            python scripts/dispatch_agent.py reviewer \
               --scan-dir data_eng
           fi
