@@ -10,9 +10,8 @@ jobs:
     if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       pull-requests: write
-      issues: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -43,7 +42,13 @@ jobs:
             echo "found=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Dispatch Copilot write agent
+      - name: Configure git
+        if: steps.detect.outputs.found == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Generate DAB documentation
         if: steps.detect.outputs.found == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
@@ -53,10 +58,13 @@ jobs:
           DAB_LIST: ${{ steps.detect.outputs.dab_list }}
         run: python scripts/dispatch_copilot.py write-pr
 
-      - name: Request Copilot PR review
+      - name: Commit and push generated documentation
         if: steps.detect.outputs.found == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: python scripts/dispatch_copilot.py request-review
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No documentation changes to commit."
+          else
+            git commit -m "docs: auto-generate DAB README documentation [skip ci]"
+            git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          fi

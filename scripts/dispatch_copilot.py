@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Dispatch a Copilot agent task by creating a GitHub issue assigned to 'copilot'.
+Generate and commit DAB documentation directly, without creating GitHub Issues.
 
 Usage:
     python scripts/dispatch_copilot.py write-pr
@@ -12,7 +12,7 @@ All configuration is read from environment variables — nothing is interpolated
 from untrusted input directly into script code.
 
 Required env vars (all subcommands):
-    GITHUB_TOKEN   - PAT with issues:write and pull-requests:write
+    GITHUB_TOKEN   - PAT or GITHUB_TOKEN with contents:write
     GITHUB_REPOSITORY - e.g. "owner/repo"
 
 Subcommand-specific env vars:
@@ -23,18 +23,19 @@ Subcommand-specific env vars:
 
     write-adhoc / review-adhoc:
         FOLDER_PATH - relative path to the DAB folder
-        RUN_ID      - GitHub Actions run ID (for linking back)
-        SERVER_URL  - e.g. "https://github.com"
 
     request-review:
         PR_NUMBER   - pull request number
 """
 
+import glob
 import json
 import os
 import sys
 import urllib.request
 import urllib.error
+
+_MODELS_API_URL = "https://models.inference.ai.azure.com/chat/completions"
 
 
 def _api(method: str, path: str, payload: dict | None = None) -> dict:
@@ -65,108 +66,192 @@ def _repo() -> str:
     return os.environ["GITHUB_REPOSITORY"]
 
 
+def _read_file_safe(path: str) -> str:
+    """Read a file, returning an empty string if it doesn't exist."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def _collect_dab_files(dab_path: str) -> dict:
+    """Collect all relevant source files from a DAB directory."""
+    files = {}
+    for rel in ("databricks.yml", "README.md"):
+        content = _read_file_safe(os.path.join(dab_path, rel))
+        if content:
+            files[rel] = content
+    for pattern in (
+        os.path.join(dab_path, "src", "**", "*.py"),
+        os.path.join(dab_path, "resources", "**", "*.yml"),
+        os.path.join(dab_path, "resources", "**", "*.py"),
+        os.path.join(dab_path, "resources", "**", "*.sql"),
+    ):
+        for full in glob.glob(pattern, recursive=True):
+            rel = os.path.relpath(full, dab_path)
+            content = _read_file_safe(full)
+            if content:
+                files[rel] = content
+    return files
+
+
+def _call_models_api(token: str, messages: list) -> str:
+    """Call the GitHub Models inference API to generate content."""
+    url = _MODELS_API_URL
+    payload = {
+        "model": "gpt-4o-mini",
+        "messages": messages,
+        "max_tokens": 4096,
+        "temperature": 0.2,
+    }
+    data = json.dumps(payload).encode()
+    req = urllib.request.Request(
+        url,
+        data=data,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req) as resp:
+            result = json.loads(resp.read())
+            return result["choices"][0]["message"]["content"]
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode(errors="replace")
+        print(f"Models API error {exc.code}: {body}", file=sys.stderr)
+        sys.exit(1)
+
+
+def _generate_dab_readme(token: str, dab_path: str) -> str:
+    """Generate README.md content for a DAB using the Models API."""
+    skill_path = ".github/agents/skills/write-dab-documentation.md"
+    template_path = "templates/README_TEMPLATE.md"
+    skill_content = _read_file_safe(skill_path)
+    template_content = _read_file_safe(template_path)
+    if not skill_content:
+        print(f"Warning: skill file not found: {skill_path}", file=sys.stderr)
+    if not template_content:
+        print(f"Warning: template file not found: {template_path}", file=sys.stderr)
+    files = _collect_dab_files(dab_path)
+
+    file_sections = "\n\n".join(
+        f"### File: `{rel}`\n```\n{content}\n```"
+        for rel, content in files.items()
+    )
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a technical documentation writer for Databricks Asset Bundles.\n\n"
+                + skill_content
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Generate complete README.md documentation for the Databricks Asset Bundle "
+                f"at path `{dab_path}`.\n\n"
+                f"README template to follow:\n{template_content}\n\n"
+                f"DAB files:\n{file_sections}\n\n"
+                "Output ONLY the finished markdown content with no leftover template "
+                "instruction comments and no additional prose before or after the markdown."
+            ),
+        },
+    ]
+    return _call_models_api(token, messages)
+
+
 def cmd_write_pr() -> None:
     pr_number = os.environ["PR_NUMBER"]
     branch = os.environ["PR_BRANCH"]
     dab_list_raw = os.environ.get("DAB_LIST", "")
     dab_paths = [p.strip() for p in dab_list_raw.splitlines() if p.strip()]
+    token = os.environ["GITHUB_TOKEN"]
 
-    dab_bullets = "\n".join(f"- `{p}`" for p in dab_paths)
-    body = f"""\
-## Task: Write DAB Documentation
+    for dab_path in dab_paths:
+        print(f"Generating documentation for {dab_path} …")
+        readme_content = _generate_dab_readme(token, dab_path)
+        readme_path = os.path.join(dab_path, "README.md")
+        with open(readme_path, "w", encoding="utf-8") as f:
+            f.write(readme_content)
+        print(f"  ✓ Wrote {readme_path}")
 
-This task was triggered by PR #{pr_number} on branch `{branch}`.
-
-Please use the **write-dab-documentation** skill (`.github/agents/skills/write-dab-documentation.md`) to document each Databricks Asset Bundle listed below.
-Each listed directory contains a `databricks.yml` and a `README.md` that still has template placeholder content.
-The original README template can always be found at `templates/README_TEMPLATE.md`.
-
-### DABs to Document
-{dab_bullets}
-
-### Instructions
-1. For each DAB path above, follow the `write-dab-documentation` skill.
-2. Replace the template README content with fully generated documentation.
-3. Commit the updated README(s) directly to branch `{branch}`.
-"""
-    owner, repo = _repo().split("/", 1)
-    result = _api("POST", f"/repos/{owner}/{repo}/issues", {
-        "title": f"Write DAB documentation for PR #{pr_number}",
-        "body": body,
-        "assignees": ["copilot"],
-    })
-    print(f"Created issue #{result['number']}: {result['html_url']}")
+    if dab_paths:
+        print(
+            f"Documentation generated for PR #{pr_number} on branch '{branch}'. "
+            "Caller should commit and push changes."
+        )
 
 
 def cmd_write_adhoc() -> None:
     folder_path = os.environ["FOLDER_PATH"]
-    run_id = os.environ.get("RUN_ID", "")
-    server_url = os.environ.get("SERVER_URL", "https://github.com")
-    owner, repo = _repo().split("/", 1)
-    run_url = f"{server_url}/{owner}/{repo}/actions/runs/{run_id}"
+    token = os.environ["GITHUB_TOKEN"]
 
-    body = f"""\
-## Task: Write DAB Documentation
-
-This task was triggered manually via workflow run [#{run_id}]({run_url}).
-
-Please use the **write-dab-documentation** skill (`.github/agents/skills/write-dab-documentation.md`) to document the Databricks Asset Bundle below.
-The original README template can always be found at `templates/README_TEMPLATE.md`.
-
-### DAB to Document
-- `{folder_path}`
-
-### Instructions
-1. Follow the `write-dab-documentation` skill for the DAB path above.
-2. Replace the template README content with fully generated documentation.
-3. Commit the updated README to the default branch.
-"""
-    result = _api("POST", f"/repos/{owner}/{repo}/issues", {
-        "title": f"Write DAB documentation: {folder_path}",
-        "body": body,
-        "assignees": ["copilot"],
-    })
-    print(f"Created issue #{result['number']}: {result['html_url']}")
+    print(f"Generating documentation for {folder_path} …")
+    readme_content = _generate_dab_readme(token, folder_path)
+    readme_path = os.path.join(folder_path, "README.md")
+    with open(readme_path, "w", encoding="utf-8") as f:
+        f.write(readme_content)
+    print(f"  ✓ Wrote {readme_path}")
+    print("Caller should commit and push changes.")
 
 
 def cmd_review_adhoc() -> None:
     folder_path = os.environ["FOLDER_PATH"]
-    run_id = os.environ.get("RUN_ID", "")
-    server_url = os.environ.get("SERVER_URL", "https://github.com")
-    owner, repo = _repo().split("/", 1)
-    run_url = f"{server_url}/{owner}/{repo}/actions/runs/{run_id}"
+    token = os.environ["GITHUB_TOKEN"]
 
-    body = f"""\
-## Task: Review DAB Documentation
+    skill_path = ".github/agents/skills/review-dab-documentation.md"
+    template_path = "templates/README_TEMPLATE.md"
+    skill_content = _read_file_safe(skill_path)
+    template_content = _read_file_safe(template_path)
+    if not skill_content:
+        print(f"Warning: skill file not found: {skill_path}", file=sys.stderr)
+    if not template_content:
+        print(f"Warning: template file not found: {template_path}", file=sys.stderr)
+    files = _collect_dab_files(folder_path)
 
-This task was triggered manually via workflow run [#{run_id}]({run_url}).
+    file_sections = "\n\n".join(
+        f"### File: `{rel}`\n```\n{content}\n```"
+        for rel, content in files.items()
+    )
 
-Please use the **review-dab-documentation** skill (`.github/agents/skills/review-dab-documentation.md`) to review the Databricks Asset Bundle below.
-The original README template can always be found at `templates/README_TEMPLATE.md`.
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a technical documentation reviewer for Databricks Asset Bundles.\n\n"
+                + skill_content
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Review the README.md documentation for the Databricks Asset Bundle "
+                f"at path `{folder_path}`.\n\n"
+                f"README template reference:\n{template_content}\n\n"
+                f"DAB files:\n{file_sections}\n\n"
+                "Output ONLY the finished REVIEW.md markdown content with no additional prose."
+            ),
+        },
+    ]
 
-### DAB to Review
-- `{folder_path}`
-
-### Instructions
-1. Follow the `review-dab-documentation` skill for the DAB path above.
-2. Write a `REVIEW.md` file in the DAB root summarizing all findings.
-3. Commit the `REVIEW.md` to the default branch.
-"""
-    result = _api("POST", f"/repos/{owner}/{repo}/issues", {
-        "title": f"Review DAB documentation: {folder_path}",
-        "body": body,
-        "assignees": ["copilot"],
-    })
-    print(f"Created issue #{result['number']}: {result['html_url']}")
+    review_content = _call_models_api(token, messages)
+    review_path = os.path.join(folder_path, "REVIEW.md")
+    with open(review_path, "w", encoding="utf-8") as f:
+        f.write(review_content)
+    print(f"  ✓ Wrote {review_path}")
+    print("Caller should commit and push changes.")
 
 
 def cmd_request_review() -> None:
-    pr_number = int(os.environ["PR_NUMBER"])
-    owner, repo = _repo().split("/", 1)
-    result = _api("POST", f"/repos/{owner}/{repo}/pulls/{pr_number}/requested_reviewers", {
-        "reviewers": ["copilot"],
-    })
-    print(f"Requested review on PR #{pr_number}: {result.get('html_url', '')}")
+    # No-op: PR review requests to 'copilot' are not supported via the REST API.
+    # Documentation review is handled by the review-ad-hoc workflow instead.
+    pr_number = os.environ.get("PR_NUMBER", "unknown")
+    print(f"Skipping PR review request for PR #{pr_number} (not supported via REST API).")
 
 
 COMMANDS = {
