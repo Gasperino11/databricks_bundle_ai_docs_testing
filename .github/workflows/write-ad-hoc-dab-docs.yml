@@ -11,8 +11,7 @@ jobs:
   write-docs:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      issues: write
+      contents: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -31,11 +30,24 @@ jobs:
           fi
           echo "Found DAB at: $FOLDER"
 
-      - name: Dispatch Copilot write agent
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Generate DAB documentation
         env:
           GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           FOLDER_PATH: ${{ github.event.inputs.folder_path }}
-          RUN_ID: ${{ github.run_id }}
-          SERVER_URL: ${{ github.server_url }}
         run: python scripts/dispatch_copilot.py write-adhoc
+
+      - name: Commit and push generated documentation
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No documentation changes to commit."
+          else
+            git commit -m "docs: auto-generate DAB README for ${{ github.event.inputs.folder_path }} [skip ci]"
+            git push
+          fi
