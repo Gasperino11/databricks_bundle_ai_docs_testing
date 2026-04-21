@@ -6,6 +6,8 @@ on:
 
 jobs:
   write-and-review:
+    # Only run for PRs from the same repository (not forks) so secrets are available
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -26,69 +28,35 @@ jobs:
             readme="$dir/README.md"
             if [ -f "$readme" ] && grep -q "<!-- INSTRUCTIONS:" "$readme"; then
               rel_dir="${dir#./}"
-              dab_list="${dab_list}${rel_dir}\n"
+              dab_list="${dab_list}${rel_dir}"$'\n'
             fi
           done < <(find . -name "databricks.yml" -not -path "./.git/*" -print0)
 
           if [ -n "$dab_list" ]; then
-            echo "found=true" >> $GITHUB_OUTPUT
+            echo "found=true" >> "$GITHUB_OUTPUT"
             {
               echo "dab_list<<EOF"
-              printf "%b" "$dab_list"
+              printf '%s' "$dab_list"
               echo "EOF"
-            } >> $GITHUB_OUTPUT
+            } >> "$GITHUB_OUTPUT"
           else
-            echo "found=false" >> $GITHUB_OUTPUT
+            echo "found=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Dispatch Copilot write agent
         if: steps.detect.outputs.found == 'true'
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.COPILOT_PAT }}
-          script: |
-            const prNumber = context.payload.pull_request.number;
-            const branch = context.payload.pull_request.head.ref;
-            const dabPaths = `${{ steps.detect.outputs.dab_list }}`
-              .split('\n')
-              .map(p => p.trim())
-              .filter(Boolean);
-
-            const body = [
-              "## Task: Write DAB Documentation",
-              "",
-              `This task was triggered by PR #${prNumber} on branch \`${branch}\`.`,
-              "",
-              "Please use the **write-dab-documentation** skill (`.github/agents/skills/write-dab-documentation.md`) to document each Databricks Asset Bundle listed below.",
-              "Each listed directory contains a `databricks.yml` and a `README.md` that still has template placeholder content.",
-              "The original README template can always be found at `templates/README_TEMPLATE.md`.",
-              "",
-              "### DABs to Document",
-              ...dabPaths.map(p => `- \`${p}\``),
-              "",
-              "### Instructions",
-              "1. For each DAB path above, follow the `write-dab-documentation` skill.",
-              "2. Replace the template README content with fully generated documentation.",
-              `3. Commit the updated README(s) directly to branch \`${branch}\`.`
-            ].join('\n');
-
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `Write DAB documentation for PR #${prNumber}`,
-              body,
-              assignees: ['copilot']
-            });
+        env:
+          GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          DAB_LIST: ${{ steps.detect.outputs.dab_list }}
+        run: python scripts/dispatch_copilot.py write-pr
 
       - name: Request Copilot PR review
         if: steps.detect.outputs.found == 'true'
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.COPILOT_PAT }}
-          script: |
-            await github.rest.pulls.requestReviewers({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.payload.pull_request.number,
-              reviewers: ['copilot']
-            });
+        env:
+          GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python scripts/dispatch_copilot.py request-review
