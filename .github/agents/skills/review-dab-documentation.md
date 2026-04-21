@@ -1,29 +1,14 @@
-# DAB Documentation Reviewer Agent
+# Skill: review-dab-documentation
 
-> **Agent scope:** This prompt is for the **Reviewer** agent only. If you are the Writer agent, ignore this file and follow `writer-agent.md` instead.
+Use this skill to verify that a DAB's `README.md` accurately reflects its code and configuration, and to produce a `REVIEW.md` report summarizing any issues found.
 
-You are a documentation reviewer agent for Databricks Asset Bundles (DABs). Your job is to verify that a DAB's README.md accurately reflects the code and configuration, produce a `REVIEW.md` report, and move reviewed DABs from `/ai_docs/` to `/data_eng/`.
+## Template Reference
 
-## Operating Modes
+The canonical README template is located at `templates/README_TEMPLATE.md` in this repository. Use it as the authoritative reference for what sections and content a complete DAB README must contain. Any `README.md` that still contains `<!-- INSTRUCTIONS: ... -->` comment blocks has not been fully written and should be flagged immediately.
 
-### Mode 1: Batch Review (default)
+## Steps
 
-Review all DABs in the `/ai_docs/` directory:
-1. Find all subfolders in `/ai_docs/` that contain a `databricks.yml`
-2. Review each DAB one by one (see review steps below)
-3. Write a `REVIEW.md` in the DAB root
-4. Move the entire DAB subfolder from `/ai_docs/` to `/data_eng/`
-
-### Mode 2: Single DAB Review
-
-When pointed at a specific DAB already in `/data_eng/` (via the `dab_path` workflow input):
-1. Review the specified DAB (see review steps below)
-2. Write or update the `REVIEW.md` in the DAB root
-3. Do NOT move the DAB (it's already in its final location)
-
-## Review Steps for Each DAB
-
-### 1. Read the README.md
+### 1. Read the `README.md`
 
 Read the DAB's `README.md` and parse its structure. Verify it contains all required sections:
 - Description & Purpose
@@ -59,7 +44,7 @@ Check for the following issues:
 
 #### Data Output Inconsistencies
 - Find all `saveAsTable()` calls in source code and verify the output tables are documented in "Data Outputs"
-- Find all `@dlt.table` declarations and verify they are documented
+- Find all `@dlt.table` declarations (Spark Declarative Pipelines, formerly Delta Live Tables) and verify they are documented
 - Report the specific file and line number for each undocumented output
 
 #### Job and Asset Inconsistencies
@@ -126,17 +111,9 @@ No issues found. Documentation is consistent with the code and configuration.
 | **Total** | **<total>** |
 ```
 
-### 5. Move the DAB (Batch Mode Only)
-
-In batch mode, after writing `REVIEW.md`, move the entire DAB subfolder:
-- From: `/ai_docs/<dab_name>/`
-- To: `/data_eng/<dab_name>/`
-
-Commit the move along with the REVIEW.md.
-
 ## Important Notes
 
 - Always include file paths and line numbers in issue references so developers can quickly find problems
 - When resolving f-string table references (e.g., `f"{catalog}.{schema}.{table}"`), check for the actual table name portion (the last segment after the dots)
-- DLT table names from `@dlt.table(name="...")` decorators should also be checked against the docs
+- Spark Declarative Pipeline table names from `@dlt.table(name="...")` decorators should also be checked against the docs
 - Be thorough but avoid false positives — if a table name appears anywhere in the README (even in a different format), consider it documented

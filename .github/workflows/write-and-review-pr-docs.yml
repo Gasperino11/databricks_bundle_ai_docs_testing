@@ -1,0 +1,62 @@
+name: Write and Review PR DAB Documentation
+
+on:
+  pull_request:
+    types: [opened]
+
+jobs:
+  write-and-review:
+    # Only run for PRs from the same repository (not forks) so secrets are available
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Detect DABs with template READMEs
+        id: detect
+        run: |
+          dab_list=""
+          while IFS= read -r -d '' yml; do
+            dir=$(dirname "$yml")
+            readme="$dir/README.md"
+            if [ -f "$readme" ] && grep -q "<!-- INSTRUCTIONS:" "$readme"; then
+              rel_dir="${dir#./}"
+              dab_list="${dab_list}${rel_dir}"$'\n'
+            fi
+          done < <(find . -name "databricks.yml" -not -path "./.git/*" -print0)
+
+          if [ -n "$dab_list" ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "dab_list<<EOF"
+              printf '%s' "$dab_list"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dispatch Copilot write agent
+        if: steps.detect.outputs.found == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          DAB_LIST: ${{ steps.detect.outputs.dab_list }}
+        run: python scripts/dispatch_copilot.py write-pr
+
+      - name: Request Copilot PR review
+        if: steps.detect.outputs.found == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: python scripts/dispatch_copilot.py request-review

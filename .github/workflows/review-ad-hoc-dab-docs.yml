@@ -1,0 +1,41 @@
+name: Review Ad-Hoc DAB Documentation
+
+on:
+  workflow_dispatch:
+    inputs:
+      folder_path:
+        description: "Path to the DAB folder to review (e.g., data_eng/my_pipeline). Must contain databricks.yml and README.md."
+        required: true
+
+jobs:
+  review-docs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate DAB folder
+        env:
+          FOLDER: ${{ github.event.inputs.folder_path }}
+        run: |
+          if [ ! -f "$FOLDER/databricks.yml" ]; then
+            echo "Error: No databricks.yml found in '$FOLDER'"
+            exit 1
+          fi
+          if [ ! -f "$FOLDER/README.md" ]; then
+            echo "Error: No README.md found in '$FOLDER'"
+            exit 1
+          fi
+          echo "Found DAB at: $FOLDER"
+
+      - name: Dispatch Copilot review agent
+        env:
+          GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          FOLDER_PATH: ${{ github.event.inputs.folder_path }}
+          RUN_ID: ${{ github.run_id }}
+          SERVER_URL: ${{ github.server_url }}
+        run: python scripts/dispatch_copilot.py review-adhoc
